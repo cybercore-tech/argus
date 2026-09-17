@@ -51,6 +51,24 @@ pub fn classify(
     path: &Path,
     baseline_record: Option<&FileRecord>,
 ) -> std::io::Result<Option<Change>> {
+    // Directories are never tracked (same convention as SigilWard's own
+    // baseline walk, which skips them entirely — only files/symlinks get
+    // recorded). Every file create/delete under a recursively-watched
+    // directory also fires its own separate inotify event for the
+    // *directory itself* (its mtime just changed too), so this is hit
+    // constantly in normal operation, not an edge case — without this
+    // check, record_for's hash_file() tries to open() a directory and
+    // fails with EISDIR on every single one of those.
+    if let Ok(meta) = std::fs::symlink_metadata(path)
+        && meta.file_type().is_dir()
+    {
+        return Ok(baseline_record.map(|_| Change::Modified {
+            content_changed: true,
+            mode_changed: false,
+            owner_changed: false,
+        }));
+    }
+
     let current = record_for(path);
     match (baseline_record, current) {
         (None, Ok(_)) => Ok(Some(Change::New)),
@@ -161,6 +179,42 @@ mod tests {
 
         let result = classify(&path, None).unwrap();
         assert_eq!(result, None);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn classify_ignores_an_untracked_directorys_own_inotify_event() {
+        // The real-world case that broke the first live deploy: every file
+        // create/delete under a recursively-watched directory also fires
+        // its own separate inotify event for the *directory itself* (its
+        // mtime changed too). Directories are never tracked, so this must
+        // not attempt to hash the directory and must not error.
+        let dir = std::env::temp_dir().join(format!("argus-change-test5-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("subdir")).unwrap();
+
+        let result = classify(&dir.join("subdir"), None).unwrap();
+        assert_eq!(result, None);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn classify_flags_a_tracked_file_path_replaced_by_a_directory() {
+        // Rare, but a real type change worth surfacing rather than
+        // silently dropping like the untracked case above.
+        let dir = std::env::temp_dir().join(format!("argus-change-test6-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("was-a-file")).unwrap();
+
+        let old = record("abc", 0o644, 0, 0, 10);
+        let result = classify(&dir.join("was-a-file"), Some(&old)).unwrap();
+        assert!(matches!(
+            result,
+            Some(Change::Modified {
+                content_changed: true,
+                ..
+            })
+        ));
 
         std::fs::remove_dir_all(&dir).ok();
     }
