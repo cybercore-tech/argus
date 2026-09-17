@@ -38,31 +38,33 @@ Environment=HOME=/home/raven
 # (root writes into it fine afterward via the retained CAP_DAC_OVERRIDE
 # below — no chown needed either.)
 
-# A root service has no user session by default — point it at raven's own
-# D-Bus/Wayland sockets so `omarchy-notification-send` (toast.rs) can
-# actually reach the desktop. /run/user/1000/bus is world-read/writable
-# (srw-rw-rw-) and root can connect to any unix socket regardless of its
-# owner, so this should work, but it's the one part of this unit I
-# couldn't verify myself (no passwordless sudo in this sandbox) — check
-# it fires a real toast after enabling the unit; if not, this is the
-# first thing to debug.
-Environment=XDG_RUNTIME_DIR=/run/user/1000
-Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
-Environment=WAYLAND_DISPLAY=wayland-1
+# A root service has no user session by default. First attempt just
+# exported DBUS_SESSION_BUS_ADDRESS/WAYLAND_DISPLAY on the daemon's own
+# (root) environment — confirmed live NOT enough: D-Bus's session bus
+# authenticates by the connecting process's real UID, not merely the
+# socket path, and rejected root outright (`busctl: Failed to connect to
+# user scope bus via local transport: Broken pipe`). toast.rs now drops to
+# `runuser -u raven` for just the notification subprocess instead, passing
+# these same env vars explicitly on that command — the standard pattern
+# for a root daemon reaching a specific user's session. Nothing to set
+# here anymore; kept as a note so a future "why no toast" debugging pass
+# starts from toast.rs, not this file.
 
 # Sandboxing. Real runtime footprint: reads the paths named in
 # ~/.config/sigilward/config.toml and SigilWard's baseline.json (both
 # under /home/raven, hence ProtectHome=read-only + a carved-out
 # ReadWritePaths for the one directory Argus actually writes to), plus
-# the root-owned /etc paths themselves, and shells out to
+# the root-owned /etc paths themselves, and shells out to `runuser` +
 # omarchy-notification-send for desktop toasts.
 #
 # CapabilityBoundingSet explicitly RETAINS CAP_DAC_OVERRIDE/
 # CAP_DAC_READ_SEARCH — an empty set (the first version of this unit) strips
 # even root's own DAC-bypass power, which is the entire reason this runs as
 # root in the first place (reading /etc/sudoers, mode 0440 root:root).
-# Everything else root doesn't need (CAP_SYS_ADMIN, CAP_NET_ADMIN,
-# CAP_SETUID, ...) is still dropped.
+# CAP_SETUID/CAP_SETGID are retained too — `runuser` (toast.rs) needs them
+# to actually drop from root to raven; without them the setuid()/setgid()
+# syscalls it makes internally would fail. Everything else root doesn't
+# need (CAP_SYS_ADMIN, CAP_NET_ADMIN, ...) is still dropped.
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
@@ -76,7 +78,7 @@ LockPersonality=true
 RestrictRealtime=true
 RestrictSUIDSGID=true
 RestrictAddressFamilies=AF_UNIX
-CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_SETUID CAP_SETGID
 
 [Install]
 WantedBy=multi-user.target

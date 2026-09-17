@@ -7,11 +7,25 @@
 use crate::baseline::Baseline;
 use crate::change::{self, Change};
 use crate::events::{self, EventRecord};
-use notify::RecursiveMode;
+use notify::{EventKind, RecursiveMode};
 use notify_debouncer_full::{DebounceEventResult, new_debouncer};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
+
+/// Whether a raw event kind is worth re-hashing a path over. A live deploy
+/// showed `Access(Open(Any))` firing repeatedly for every custom unit file
+/// under `/etc/systemd/system` — something (most likely cyberdeck-hub's own
+/// live-status polling) opens all of them on a short cycle, which is
+/// completely legitimate read traffic, not tampering. A file-integrity tool
+/// cares about writes (content/permissions/ownership actually changing),
+/// not reads — reacting to every open wastes a full re-hash on each poll,
+/// and for a path with no baseline entry yet (like a freshly-created,
+/// not-yet-`sigilward update`d unit file) it meant logging "New" on every
+/// single read forever, which is genuinely spammy, not just wasteful.
+fn is_write_relevant(kind: &EventKind) -> bool {
+    !matches!(kind, EventKind::Access(_))
+}
 
 pub struct WatchTarget {
     pub path: PathBuf,
@@ -67,28 +81,20 @@ pub fn run(
     for result in rx {
         match result {
             Ok(debounced_events) => {
-                // TEMPORARY diagnostic: a real deploy showed /etc/sudoers
-                // and argus.service repeatedly logged as "New" roughly
-                // every 2s (== the debounce timeout) with no real change —
-                // a self-sustaining loop of some kind. Logging the raw
-                // notify::EventKind for every debounced event (before any
-                // of our own dedup/classify logic runs) to see what's
-                // actually arriving, rather than guess further.
-                for debounced in &debounced_events {
-                    eprintln!(
-                        "argus: DIAG raw event: kind={:?} paths={:?}",
-                        debounced.kind, debounced.paths
-                    );
-                }
-
                 // A single save can surface as several `DebouncedEvent`s for
                 // the same path (e.g. separate Create/Modify(Data)/
                 // Modify(Metadata) kinds) even within one debounced batch —
                 // dedupe to one classify-and-log per unique path per batch,
                 // not per raw event, or one real edit logs several
-                // identical lines.
+                // identical lines. `Access` events (mere reads/opens — see
+                // `is_write_relevant`) are filtered out before that, so
+                // something merely reading a watched file never triggers a
+                // re-hash at all.
                 let mut seen = std::collections::HashSet::new();
                 for debounced in &debounced_events {
+                    if !is_write_relevant(&debounced.kind) {
+                        continue;
+                    }
                     for path in &debounced.paths {
                         if seen.insert(path.clone()) {
                             handle_path(path, baseline, log_path);
@@ -155,7 +161,28 @@ fn classify_and_log(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use notify::event::{AccessKind, AccessMode, CreateKind, ModifyKind, RemoveKind};
     use std::collections::BTreeMap;
+
+    #[test]
+    fn access_events_are_never_write_relevant() {
+        assert!(!is_write_relevant(&EventKind::Access(AccessKind::Open(
+            notify::event::AccessMode::Any
+        ))));
+        assert!(!is_write_relevant(&EventKind::Access(AccessKind::Read)));
+        assert!(!is_write_relevant(&EventKind::Access(AccessKind::Close(
+            AccessMode::Any
+        ))));
+    }
+
+    #[test]
+    fn create_modify_remove_are_write_relevant() {
+        assert!(is_write_relevant(&EventKind::Create(CreateKind::File)));
+        assert!(is_write_relevant(&EventKind::Modify(ModifyKind::Data(
+            notify::event::DataChange::Any
+        ))));
+        assert!(is_write_relevant(&EventKind::Remove(RemoveKind::File)));
+    }
 
     #[test]
     fn detects_and_logs_a_real_permission_change_against_baseline() {
