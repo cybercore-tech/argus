@@ -45,8 +45,14 @@ pub fn run(
 ) -> anyhow::Result<()> {
     let (tx, rx) = mpsc::channel::<DebounceEventResult>();
 
+    // 2s (the original choice) made real drift feel noticeably slow to
+    // notice for something advertised as "real-time" — confirmed live
+    // ("received the notify... just a little slow"). 750ms still comfortably
+    // collapses the multi-raw-event bursts a single logical save produces
+    // (an editor's write-temp+rename completes in low milliseconds, not
+    // seconds) while cutting perceived latency by ~2/3.
     let mut debouncer = new_debouncer(
-        Duration::from_secs(2),
+        Duration::from_millis(750),
         None,
         move |result: DebounceEventResult| {
             let _ = tx.send(result);

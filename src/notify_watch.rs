@@ -38,8 +38,12 @@ pub fn run(log_path: &Path) -> Result<()> {
     std::fs::create_dir_all(&watch_dir)?;
 
     let (tx, rx) = mpsc::channel::<DebounceEventResult>();
+    // Short — this is just watching one small append-only file for a new
+    // line, not collapsing multi-event write bursts the way the daemon's
+    // own debounce needs to. 200ms adds negligible extra latency on top of
+    // the daemon's own 750ms.
     let mut debouncer = new_debouncer(
-        Duration::from_millis(500),
+        Duration::from_millis(200),
         None,
         move |result: DebounceEventResult| {
             let _ = tx.send(result);
