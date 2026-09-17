@@ -1,0 +1,24 @@
+[package]
+name = "argus"
+version = "0.1.0"
+edition = "2024"
+description = "Real-time file-integrity watcher — inotify daemon + TUI, extends SigilWard's baseline live"
+license = "MIT"
+
+[dependencies]
+anyhow = "1.0.104"
+chrono = { version = "0.4.45", features = ["serde"] }
+crossterm = "0.29.0"
+cybercore = { path = "/home/raven/.sysops/cybercore" }
+dirs = "6.0.0"
+notify = "8.2.0"
+notify-debouncer-full = "0.7.0"
+ratatui = "0.30.2"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.10.9"
+toml = "0.8"
+
+[profile.release]
+strip = true
+lto = "thin"

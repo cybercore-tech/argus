@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Opens the Argus TUI in a floating terminal, or focuses it if already
+# open. Same terminal-detection pattern as cyberwatch-toggle, trimmed down
+# (no bundled-binary bootstrap — argus isn't distributed as a plugin, this
+# is just the click-target for the daemon's own desktop notification).
+set -euo pipefail
+
+ARGUS_BIN="/home/raven/.cargo-target/release/argus"
+WINDOW_TITLE="Argus"
+
+focus_existing() {
+  hyprctl dispatch focuswindow "title:^(${WINDOW_TITLE})$" 2>/dev/null | grep -q ok
+}
+
+launch() {
+  local terminal="${TERMINAL:-}"
+  if [[ -z "$terminal" ]]; then
+    for candidate in ghostty alacritty kitty foot; do
+      if command -v "$candidate" >/dev/null 2>&1; then
+        terminal="$candidate"
+        break
+      fi
+    done
+  fi
+
+  case "$terminal" in
+    alacritty)
+      exec setsid uwsm-app -- alacritty --class "$WINDOW_TITLE" --title "$WINDOW_TITLE" -e "$ARGUS_BIN"
+      ;;
+    kitty)
+      exec setsid uwsm-app -- kitty --class "$WINDOW_TITLE" --title "$WINDOW_TITLE" "$ARGUS_BIN"
+      ;;
+    ghostty)
+      exec setsid uwsm-app -- ghostty --title="$WINDOW_TITLE" -e "$ARGUS_BIN"
+      ;;
+    foot)
+      exec setsid uwsm-app -- foot --title="$WINDOW_TITLE" "$ARGUS_BIN"
+      ;;
+    *)
+      exec setsid uwsm-app -- xdg-terminal-exec --title="$WINDOW_TITLE" -e "$ARGUS_BIN"
+      ;;
+  esac
+}
+
+if [[ ! -x "$ARGUS_BIN" ]]; then
+  notify-send "Argus" "Binary not built yet: $ARGUS_BIN" || true
+  exit 1
+fi
+
+if focus_existing; then
+  exit 0
+fi
+
+launch

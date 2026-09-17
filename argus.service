@@ -1,0 +1,52 @@
+[Unit]
+Description=Argus — real-time file-integrity watcher (extends SigilWard's baseline live)
+Documentation=https://github.com/darkstardevx/argus
+After=local-fs.target
+
+[Service]
+Type=simple
+# Root, deliberately — unlike sigilward-check.service (User=raven), which
+# has been silently unable to read /etc/sudoers (mode 0440 root:root) the
+# whole time it's been "watching" it. Argus needs real read access to the
+# paths it's actually meant to detect tampering in.
+User=root
+WorkingDirectory=/home/raven/tools/security/argus
+ExecStart=/home/raven/.cargo-target/release/argus daemon
+Restart=on-failure
+RestartSec=5
+
+# A root service has no user session by default — point it at raven's own
+# D-Bus/Wayland sockets so `omarchy-notification-send` (toast.rs) can
+# actually reach the desktop. /run/user/1000/bus is world-read/writable
+# (srw-rw-rw-) and root can connect to any unix socket regardless of its
+# owner, so this should work, but it's the one part of this unit I
+# couldn't verify myself (no passwordless sudo in this sandbox) — check
+# it fires a real toast after enabling the unit; if not, this is the
+# first thing to debug.
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+Environment=WAYLAND_DISPLAY=wayland-1
+
+# Sandboxing. Real runtime footprint: reads the paths named in
+# ~/.config/sigilward/config.toml and SigilWard's baseline.json (both
+# under /home/raven, hence ProtectHome=read-only + a carved-out
+# ReadWritePaths for the one directory Argus actually writes to), plus
+# the root-owned /etc paths themselves, and shells out to
+# omarchy-notification-send for desktop toasts.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/raven/.local/state/argus
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectClock=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

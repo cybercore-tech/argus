@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Quality gate for argus. Single bin crate, not a workspace — no per-package
+# arrays, no publish step, no pinned-MSRV re-run. Same scaled-down shape as
+# cyberterm/cyberwatch/cybermeta's.
+#
+# Modes:
+#   quick  - fmt/whitespace/check/clippy (fast, run constantly)
+#   full   - quick + tests + strict rustdoc
+
+set -euo pipefail
+
+require_repo_root() {
+    if [[ ! -f Cargo.toml ]]; then
+        echo "error: run this from the argus project root (no Cargo.toml here)" >&2
+        exit 1
+    fi
+}
+
+run_gate() {
+    local name="$1"
+    shift
+    echo "==> ${name}"
+    if ! "$@"; then
+        echo "FAILED: ${name}" >&2
+        exit 1
+    fi
+}
+
+require_repo_root
+mode="${1:-quick}"
+
+case "$mode" in
+    quick)
+        run_gate "git diff --check" git diff --check
+        run_gate "cargo fmt --check" cargo fmt --all -- --check
+        run_gate "cargo check" cargo check --all-targets --all-features
+        run_gate "cargo clippy" cargo clippy --all-targets --all-features -- -D warnings
+        ;;
+    full)
+        "$0" quick
+        run_gate "cargo test" cargo test --bin argus --all-features
+        run_gate "cargo doc (strict)" env RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features --bin argus
+        ;;
+    *)
+        echo "usage: $0 [quick|full]" >&2
+        exit 1
+        ;;
+esac
+
+echo "All gates passed (${mode})."
