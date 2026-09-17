@@ -1,6 +1,7 @@
 use crate::change::Change;
 use crate::events::{self, EventRecord};
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use std::path::PathBuf;
 
 pub enum Mode {
@@ -8,6 +9,17 @@ pub enum Mode {
     Filter,
     Detail,
     Help,
+}
+
+/// Which event to accept — path + timestamp identify it uniquely in the
+/// log. Re-hashing an arbitrary watched path needs privilege the TUI
+/// itself doesn't have (some paths, like `/etc/sudoers` or a root-only
+/// unit file, only root can read), so accepting is deferred to a
+/// `sudo argus accept-one <path> <at>` subprocess (see `main.rs`'s
+/// `suspend_and_accept`) rather than done in-process here.
+pub struct AcceptJob {
+    pub path: String,
+    pub at: DateTime<Utc>,
 }
 
 pub struct App {
@@ -18,12 +30,12 @@ pub struct App {
     pub mode: Mode,
     pub status: Option<String>,
     pub should_quit: bool,
+    pub accept_job: Option<AcceptJob>,
     log_path: PathBuf,
-    baseline_path: PathBuf,
 }
 
 impl App {
-    pub fn new(log_path: PathBuf, baseline_path: PathBuf) -> Result<Self> {
+    pub fn new(log_path: PathBuf) -> Result<Self> {
         let mut app = Self {
             events: Vec::new(),
             filtered: Vec::new(),
@@ -32,8 +44,8 @@ impl App {
             mode: Mode::Normal,
             status: None,
             should_quit: false,
+            accept_job: None,
             log_path,
-            baseline_path,
         };
         app.reload();
         Ok(app)
@@ -85,24 +97,16 @@ impl App {
         }
     }
 
-    /// Re-hashes the selected event's path fresh and writes it into
-    /// SigilWard's real baseline, then flags the event reviewed — "I saw
+    /// Queues the selected event for accept — actually performed by a
+    /// suspended, `sudo`-run subprocess (see `main.rs`), not here. "I saw
     /// this and it's fine" as a single key, without touching any other
     /// unreviewed drift the way a blanket `sigilward update` would.
-    pub fn accept_selected(&mut self) {
-        let Some(event) = self.selected_event().cloned() else {
-            return;
-        };
-        match crate::baseline::accept(&self.baseline_path, &event.path) {
-            Ok(()) => {
-                if let Err(e) = events::mark_accepted(&self.log_path, &event.path, event.at) {
-                    self.status = Some(format!("accepted, but failed to update log: {e}"));
-                } else {
-                    self.status = Some(format!("accepted: {}", event.path));
-                }
-                self.reload();
-            }
-            Err(e) => self.status = Some(format!("accept failed: {e}")),
+    pub fn request_accept_selected(&mut self) {
+        if let Some(event) = self.selected_event() {
+            self.accept_job = Some(AcceptJob {
+                path: event.path.clone(),
+                at: event.at,
+            });
         }
     }
 }

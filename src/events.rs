@@ -58,6 +58,17 @@ pub fn read_all(log_path: &Path) -> Result<Vec<EventRecord>> {
 /// rewriting the log with that one line updated. The log is small (one
 /// line per real drift event, not per file) so a full rewrite on accept is
 /// cheap and far simpler than an index.
+///
+/// Writes to a temp file in the same directory and renames it over the
+/// original, rather than truncating the existing file in place — not just
+/// for atomicity, but because it's the only thing that actually works
+/// here: `events.jsonl` is created by the root daemon (`argus daemon`),
+/// so it's `root`-owned, and the TUI's `a` (accept) action runs as a
+/// normal user. Opening the *existing* file for write needs permission on
+/// the file itself (which a non-owner doesn't have — confirmed live,
+/// `EACCES`/os error 13). A rename-based replace only needs write
+/// permission on the *directory*, which the user does have (they created
+/// `~/.local/state/argus/` themselves, per the one-time setup step).
 pub fn mark_accepted(log_path: &Path, path: &str, at: DateTime<Utc>) -> Result<()> {
     let mut records = read_all(log_path)?;
     if let Some(record) = records
@@ -67,10 +78,14 @@ pub fn mark_accepted(log_path: &Path, path: &str, at: DateTime<Utc>) -> Result<(
     {
         record.accepted = true;
     }
-    let mut file = std::fs::File::create(log_path)?;
-    for record in &records {
-        writeln!(file, "{}", serde_json::to_string(record)?)?;
+    let tmp_path = log_path.with_extension("jsonl.tmp");
+    {
+        let mut file = std::fs::File::create(&tmp_path)?;
+        for record in &records {
+            writeln!(file, "{}", serde_json::to_string(record)?)?;
+        }
     }
+    std::fs::rename(&tmp_path, log_path)?;
     Ok(())
 }
 

@@ -129,8 +129,7 @@ fn draw_status(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
 }
 
 fn draw_footer(frame: &mut Frame, theme: &Theme, area: Rect) {
-    let text =
-        "j/k nav  enter/l details  a accept into baseline  /  filter  R reload  ? help  q quit";
+    let text = "j/k nav  enter/l details  a accept (sudo)  /  filter  R reload  ? help  q quit";
     frame.render_widget(
         Paragraph::new(text).style(Style::default().fg(theme.muted)),
         area,
@@ -184,7 +183,7 @@ fn draw_help_popup(frame: &mut Frame, area: Rect, theme: &Theme) {
         "j/k, ↑/↓   move",
         "/          filter by path",
         "enter, l   show event detail",
-        "a          accept: re-hash and write into SigilWard's baseline",
+        "a          accept (sudo): re-hash and write into SigilWard's baseline",
         "R          reload the event log from disk",
         "?          toggle this help",
         "q, Esc     quit (Esc closes a popup first)",

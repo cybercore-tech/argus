@@ -31,6 +31,7 @@ enum ArgMode {
     Tui,
     Daemon,
     NotifyWatch,
+    AcceptOne { path: String, at: String },
     Events { since: Option<String> },
 }
 
@@ -40,6 +41,15 @@ fn parse_args() -> std::result::Result<ArgMode, String> {
         None => Ok(ArgMode::Tui),
         Some("daemon") => Ok(ArgMode::Daemon),
         Some("notify-watch") => Ok(ArgMode::NotifyWatch),
+        Some("accept-one") => {
+            let path = args
+                .next()
+                .ok_or_else(|| "argus accept-one: missing <path>".to_string())?;
+            let at = args
+                .next()
+                .ok_or_else(|| "argus accept-one: missing <at> (RFC3339 timestamp)".to_string())?;
+            Ok(ArgMode::AcceptOne { path, at })
+        }
         Some("events") => {
             let mut since = None;
             while let Some(arg) = args.next() {
@@ -67,6 +77,10 @@ fn print_usage() {
          \x20   argus              Open the TUI event viewer\n\
          \x20   argus daemon       Run the real-time watcher in the foreground (for systemd)\n\
          \x20   argus notify-watch Tail the event log and fire desktop toasts (for a --user unit)\n\
+         \x20   argus accept-one <path> <at>   Re-hash <path> and write it into SigilWard's\n\
+         \x20                      baseline, marking the <at>-timestamped event accepted.\n\
+         \x20                      Meant to be run via sudo — this is what the TUI's `a`\n\
+         \x20                      key actually shells out to, not usually run by hand.\n\
          \x20   argus events [--since <RFC3339>]   Print the event log as JSON\n\
          \x20   -h, --help         Print this help and exit\n\
          \n\
@@ -117,6 +131,38 @@ fn run_notify_watch() -> Result<()> {
     notify_watch::run(&log_path)
 }
 
+/// Re-hashes `path` right now and writes it into SigilWard's real
+/// baseline, then marks the matching (by path + timestamp) event in
+/// Argus's own log accepted. Deliberately a *separate* CLI mode, not
+/// something `run_tui` does directly — some watched paths (`/etc/sudoers`,
+/// or any unit file that happens to be root-only) can only be read by
+/// root, and the TUI itself runs unprivileged. The TUI's `a` key shells
+/// out to `sudo argus accept-one <path> <at>` with a real inherited
+/// terminal for the password prompt (same pattern as cyberwatch's own
+/// sudo-in-terminal actions), rather than the TUI process itself trying
+/// to gain privilege.
+fn run_accept_one(path: &str, at: &str) -> Result<()> {
+    // Hardcoded, not resolved via $HOME/$XDG_*: this runs under `sudo`,
+    // and whether `sudo` preserves or resets HOME depends on this box's
+    // sudoers policy (`always_set_home` and friends) — exactly the same
+    // class of bug that bit argus.service before `Environment=HOME=...`
+    // was added there. Sidestep it entirely rather than risk silently
+    // resolving to /root/.config here too.
+    let config_path = std::path::Path::new("/home/raven/.config/sigilward/config.toml");
+    let cfg = config::load(config_path)?;
+    // Not config::expand_home — it reads $HOME too, same risk as above.
+    let baseline_path = std::path::PathBuf::from(cfg.baseline_path.replacen("~", "/home/raven", 1));
+    let log_path = std::path::PathBuf::from("/home/raven/.local/state/argus/events.jsonl");
+    let at = chrono::DateTime::parse_from_rfc3339(at)
+        .map_err(|e| anyhow::anyhow!("invalid <at> timestamp: {e}"))?
+        .with_timezone(&chrono::Utc);
+
+    baseline::accept(&baseline_path, path)?;
+    events::mark_accepted(&log_path, path, at)?;
+    println!("argus: accepted {path} into the baseline");
+    Ok(())
+}
+
 fn run_events(since: Option<String>) -> Result<()> {
     let log_path = events::default_log_path();
     let mut all = events::read_all(&log_path)?;
@@ -131,8 +177,6 @@ fn run_events(since: Option<String>) -> Result<()> {
 }
 
 fn run_tui() -> Result<()> {
-    let cfg = resolve_config()?;
-    let baseline_path = config::expand_home(&cfg.baseline_path);
     let log_path = events::default_log_path();
     let theme = Theme::from_cybercore();
 
@@ -142,7 +186,7 @@ fn run_tui() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new(log_path, baseline_path)?;
+    let mut app = App::new(log_path)?;
     let result = event_loop(&mut terminal, &mut app, &theme);
 
     disable_raw_mode()?;
@@ -160,6 +204,7 @@ fn main() -> Result<()> {
     match parse_args() {
         Ok(ArgMode::Daemon) => run_daemon(),
         Ok(ArgMode::NotifyWatch) => run_notify_watch(),
+        Ok(ArgMode::AcceptOne { path, at }) => run_accept_one(&path, &at),
         Ok(ArgMode::Events { since }) => run_events(since),
         Ok(ArgMode::Tui) => run_tui(),
         Err(msg) => {
@@ -176,6 +221,11 @@ fn event_loop(
 ) -> Result<()> {
     loop {
         terminal.draw(|frame| ui::draw(frame, app, theme))?;
+
+        if let Some(job) = app.accept_job.take() {
+            suspend_and_accept(terminal, app, job)?;
+            continue;
+        }
 
         if app.should_quit {
             return Ok(());
@@ -196,6 +246,60 @@ fn event_loop(
     }
 }
 
+/// Leaves the alternate screen/raw mode, runs `sudo argus accept-one
+/// <path> <at>` with the parent's real stdio inherited (so `sudo`'s
+/// password prompt has a real terminal to write to — same reasoning as
+/// cyberwatch's `suspend_and_act`), then resumes the TUI. `at` goes over
+/// as RFC3339 so the subprocess can find the exact matching log entry.
+fn suspend_and_accept(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    app: &mut App,
+    job: app::AcceptJob,
+) -> Result<()> {
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
+
+    let current_exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("argus"));
+    let at = job.at.to_rfc3339();
+    println!("\n=== sudo argus accept-one {} ===", job.path);
+    match std::process::Command::new("sudo")
+        .arg(&current_exe)
+        .arg("accept-one")
+        .arg(&job.path)
+        .arg(&at)
+        .status()
+    {
+        Ok(status) if status.success() => {
+            app.status = Some(format!("accepted: {}", job.path));
+        }
+        Ok(status) => {
+            println!("accept-one exited with {status}");
+            app.status = Some(format!("accept failed (see above): {}", job.path));
+        }
+        Err(e) => {
+            println!("failed to run accept-one: {e}");
+            app.status = Some(format!("accept failed: {e}"));
+        }
+    }
+    println!("\nPress Enter to return to argus.");
+    let mut discard = String::new();
+    let _ = io::stdin().read_line(&mut discard);
+
+    enable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        EnterAlternateScreen,
+        EnableMouseCapture
+    )?;
+    terminal.clear()?;
+    app.reload();
+    Ok(())
+}
+
 fn handle_normal(app: &mut App, code: KeyCode, mods: KeyModifiers) {
     match code {
         KeyCode::Char('q') | KeyCode::Esc => app.should_quit = true,
@@ -206,7 +310,7 @@ fn handle_normal(app: &mut App, code: KeyCode, mods: KeyModifiers) {
             app.reload();
             app.status = Some("reloaded.".to_string());
         }
-        KeyCode::Char('a') => app.accept_selected(),
+        KeyCode::Char('a') => app.request_accept_selected(),
         KeyCode::Enter | KeyCode::Char('l') => {
             if app.selected_event().is_some() {
                 app.mode = Mode::Detail;
