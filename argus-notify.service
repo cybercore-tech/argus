@@ -1,0 +1,20 @@
+[Unit]
+Description=Argus notify-watch — desktop toasts for real-time file-integrity events
+Documentation=https://github.com/darkstardevx/argus
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/home/raven/.cargo-target/release/argus notify-watch
+Restart=on-failure
+RestartSec=5
+
+# No sandboxing directives here on purpose — this is a --user unit, so it
+# already runs as you, with your own real session's DBUS_SESSION_BUS_ADDRESS/
+# WAYLAND_DISPLAY/XDG_RUNTIME_DIR set up correctly by systemd --user itself.
+# That's the entire point of splitting this out from argus.service (see its
+# comment): no root, no runuser, no env-var bridging — genuinely inside the
+# session, which is the only thing that actually got a toast to appear.
+
+[Install]
+WantedBy=default.target

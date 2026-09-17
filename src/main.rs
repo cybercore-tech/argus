@@ -3,6 +3,7 @@ mod baseline;
 mod change;
 mod config;
 mod events;
+mod notify_watch;
 mod theme;
 mod toast;
 mod ui;
@@ -29,6 +30,7 @@ pub fn bin_dir() -> PathBuf {
 enum ArgMode {
     Tui,
     Daemon,
+    NotifyWatch,
     Events { since: Option<String> },
 }
 
@@ -37,6 +39,7 @@ fn parse_args() -> std::result::Result<ArgMode, String> {
     match args.next().as_deref() {
         None => Ok(ArgMode::Tui),
         Some("daemon") => Ok(ArgMode::Daemon),
+        Some("notify-watch") => Ok(ArgMode::NotifyWatch),
         Some("events") => {
             let mut since = None;
             while let Some(arg) = args.next() {
@@ -61,14 +64,20 @@ fn print_usage() {
         "argus — real-time file-integrity watcher, extends SigilWard's baseline live\n\
          \n\
          USAGE:\n\
-         \x20   argus            Open the TUI event viewer\n\
-         \x20   argus daemon     Run the real-time watcher in the foreground (for systemd)\n\
+         \x20   argus              Open the TUI event viewer\n\
+         \x20   argus daemon       Run the real-time watcher in the foreground (for systemd)\n\
+         \x20   argus notify-watch Tail the event log and fire desktop toasts (for a --user unit)\n\
          \x20   argus events [--since <RFC3339>]   Print the event log as JSON\n\
-         \x20   -h, --help       Print this help and exit\n\
+         \x20   -h, --help         Print this help and exit\n\
          \n\
          Watches the same paths as SigilWard (~/.config/sigilward/config.toml)\n\
          and shares its baseline (~/.local/state/sigilward/baseline.json).\n\
-         Events log to ~/.local/state/argus/events.jsonl."
+         Events log to ~/.local/state/argus/events.jsonl.\n\
+         \n\
+         `daemon` only detects and logs — it deliberately never sends a\n\
+         desktop notification itself (a root system service reaching a\n\
+         user's desktop session doesn't work reliably). Run `notify-watch`\n\
+         separately, as yourself, for toasts."
     );
 }
 
@@ -101,6 +110,11 @@ fn run_daemon() -> Result<()> {
 
     let log_path = events::default_log_path();
     watcher::run(&targets, &baseline, &log_path)
+}
+
+fn run_notify_watch() -> Result<()> {
+    let log_path = events::default_log_path();
+    notify_watch::run(&log_path)
 }
 
 fn run_events(since: Option<String>) -> Result<()> {
@@ -145,6 +159,7 @@ fn run_tui() -> Result<()> {
 fn main() -> Result<()> {
     match parse_args() {
         Ok(ArgMode::Daemon) => run_daemon(),
+        Ok(ArgMode::NotifyWatch) => run_notify_watch(),
         Ok(ArgMode::Events { since }) => run_events(since),
         Ok(ArgMode::Tui) => run_tui(),
         Err(msg) => {

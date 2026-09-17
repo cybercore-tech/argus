@@ -1,8 +1,9 @@
 //! Sets up a debounced, inotify-backed watch (via `notify` +
 //! `notify-debouncer-full`) over every `[[watch]]` entry, and turns each
 //! debounced filesystem event into a classified `Change` against the
-//! baseline loaded at startup — appending real drift to the event log and
-//! firing a desktop toast.
+//! baseline loaded at startup — appending real drift to the event log.
+//! Deliberately does NOT fire a desktop toast itself (see `toast.rs` for
+//! why) — that's `argus notify-watch`'s job, a separate `--user` process.
 
 use crate::baseline::Baseline;
 use crate::change::{self, Change};
@@ -23,7 +24,7 @@ use std::time::Duration;
 /// and for a path with no baseline entry yet (like a freshly-created,
 /// not-yet-`sigilward update`d unit file) it meant logging "New" on every
 /// single read forever, which is genuinely spammy, not just wasteful.
-fn is_write_relevant(kind: &EventKind) -> bool {
+pub fn is_write_relevant(kind: &EventKind) -> bool {
     !matches!(kind, EventKind::Access(_))
 }
 
@@ -97,7 +98,7 @@ pub fn run(
                     }
                     for path in &debounced.paths {
                         if seen.insert(path.clone()) {
-                            handle_path(path, baseline, log_path);
+                            classify_and_log(path, baseline, log_path);
                         }
                     }
                 }
@@ -113,17 +114,10 @@ pub fn run(
     Ok(())
 }
 
-fn handle_path(path: &std::path::Path, baseline: &Baseline, log_path: &std::path::Path) {
-    let Some((key, change)) = classify_and_log(path, baseline, log_path) else {
-        return;
-    };
-    crate::toast::notify(&key, &change);
-}
-
-/// The testable core: classify `path` against `baseline` and, if it's a
-/// real change (not `Unchanged`/untracked), append it to the event log and
-/// return it. Split out from `handle_path` so tests can exercise the real
-/// classify-and-log logic without also firing a desktop notification.
+/// Classifies `path` against `baseline` and, if it's a real change (not
+/// `Unchanged`/untracked), appends it to the event log and returns it —
+/// this is the daemon's entire job now (see `toast.rs` for why it no
+/// longer also fires a notification directly).
 fn classify_and_log(
     path: &std::path::Path,
     baseline: &Baseline,
