@@ -15,6 +15,21 @@ ExecStart=/home/raven/.cargo-target/release/argus daemon
 Restart=on-failure
 RestartSec=5
 
+# systemd sets HOME=/root for an explicit User=root unless told otherwise —
+# config.rs/baseline paths all resolve via $HOME (to match SigilWard's own
+# lookup exactly), so without this the daemon would silently look for
+# config at /root/.config/sigilward/config.toml and never find the real one.
+Environment=HOME=/home/raven
+
+# ReadWritePaths' target must already exist before the sandboxed namespace
+# is set up — unlike StateDirectory=, it is NOT auto-created, and the first
+# real deploy hit exactly that (226/NAMESPACE: "No such file or directory").
+# `+` runs these two outside the sandbox (full privileges, ignores User=/
+# ProtectSystem/etc.) specifically so they can create+chown it before the
+# real ExecStart's namespace is set up — idempotent, no manual step needed.
+ExecStartPre=+/usr/bin/mkdir -p /home/raven/.local/state/argus
+ExecStartPre=+/usr/bin/chown raven:raven /home/raven/.local/state/argus
+
 # A root service has no user session by default — point it at raven's own
 # D-Bus/Wayland sockets so `omarchy-notification-send` (toast.rs) can
 # actually reach the desktop. /run/user/1000/bus is world-read/writable
@@ -33,6 +48,13 @@ Environment=WAYLAND_DISPLAY=wayland-1
 # ReadWritePaths for the one directory Argus actually writes to), plus
 # the root-owned /etc paths themselves, and shells out to
 # omarchy-notification-send for desktop toasts.
+#
+# CapabilityBoundingSet explicitly RETAINS CAP_DAC_OVERRIDE/
+# CAP_DAC_READ_SEARCH — an empty set (the first version of this unit) strips
+# even root's own DAC-bypass power, which is the entire reason this runs as
+# root in the first place (reading /etc/sudoers, mode 0440 root:root).
+# Everything else root doesn't need (CAP_SYS_ADMIN, CAP_NET_ADMIN,
+# CAP_SETUID, ...) is still dropped.
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
@@ -46,7 +68,7 @@ LockPersonality=true
 RestrictRealtime=true
 RestrictSUIDSGID=true
 RestrictAddressFamilies=AF_UNIX
-CapabilityBoundingSet=
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH
 
 [Install]
 WantedBy=multi-user.target
