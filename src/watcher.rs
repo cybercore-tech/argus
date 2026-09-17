@@ -67,6 +67,20 @@ pub fn run(
     for result in rx {
         match result {
             Ok(debounced_events) => {
+                // TEMPORARY diagnostic: a real deploy showed /etc/sudoers
+                // and argus.service repeatedly logged as "New" roughly
+                // every 2s (== the debounce timeout) with no real change —
+                // a self-sustaining loop of some kind. Logging the raw
+                // notify::EventKind for every debounced event (before any
+                // of our own dedup/classify logic runs) to see what's
+                // actually arriving, rather than guess further.
+                for debounced in &debounced_events {
+                    eprintln!(
+                        "argus: DIAG raw event: kind={:?} paths={:?}",
+                        debounced.kind, debounced.paths
+                    );
+                }
+
                 // A single save can surface as several `DebouncedEvent`s for
                 // the same path (e.g. separate Create/Modify(Data)/
                 // Modify(Metadata) kinds) even within one debounced batch —
