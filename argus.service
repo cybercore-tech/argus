@@ -21,14 +21,22 @@ RestartSec=5
 # config at /root/.config/sigilward/config.toml and never find the real one.
 Environment=HOME=/home/raven
 
-# ReadWritePaths' target must already exist before the sandboxed namespace
-# is set up — unlike StateDirectory=, it is NOT auto-created, and the first
-# real deploy hit exactly that (226/NAMESPACE: "No such file or directory").
-# `+` runs these two outside the sandbox (full privileges, ignores User=/
-# ProtectSystem/etc.) specifically so they can create+chown it before the
-# real ExecStart's namespace is set up — idempotent, no manual step needed.
-ExecStartPre=+/usr/bin/mkdir -p /home/raven/.local/state/argus
-ExecStartPre=+/usr/bin/chown raven:raven /home/raven/.local/state/argus
+# ReadWritePaths' target must already exist before this unit ever starts.
+# First real deploy hit this twice: attempt 1 (no ExecStartPre at all) hit
+# 226/NAMESPACE directly; attempt 2 tried a `+`-prefixed ExecStartPre
+# mkdir, on the assumption `+` escapes sandboxing the way it escapes
+# User=/CapabilityBoundingSet= — wrong. `+` only escapes privilege-related
+# settings; mount namespacing (ProtectSystem/ReadWritePaths/ProtectHome)
+# applies to every Exec* line in the unit regardless, so the mkdir itself
+# was sandboxed against a ReadWritePaths target that didn't exist yet —
+# same failure, one step earlier. There's no in-unit way to bootstrap this;
+# StateDirectory= would auto-create it but only under /var/lib, not
+# ~/.local/state (needed so the unprivileged `argus`/`argus events` CLI
+# reads the exact same file). So: create it once, as yourself, before
+# first start — plain `mkdir`, no root needed, it's under your own home:
+#     mkdir -p /home/raven/.local/state/argus
+# (root writes into it fine afterward via the retained CAP_DAC_OVERRIDE
+# below — no chown needed either.)
 
 # A root service has no user session by default — point it at raven's own
 # D-Bus/Wayland sockets so `omarchy-notification-send` (toast.rs) can

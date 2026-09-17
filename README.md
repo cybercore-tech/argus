@@ -30,6 +30,7 @@ argus events      [--since <RFC3339>]   # JSON dump for scripting
 ```
 cargo build --release
 sudo cp target/release/argus /usr/local/bin/   # or use ~/.cargo-target/release/argus directly
+mkdir -p ~/.local/state/argus   # required once, before first start — see argus.service's own comment for why
 sudo cp argus.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now argus.service
