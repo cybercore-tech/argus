@@ -196,3 +196,6 @@ footer a { color: var(--white); }
   *, *::before, *::after { animation: none !important; transition: none !important; }
   html { scroll-behavior: auto; }
 }
+/* Shared Cybercore contact block (cybercore-tech.github.io/kit/contact.js) */
+.contact-band { position: relative; z-index: 1; padding: 3rem 0 2.5rem; border-top: 1px solid var(--line); }
+.contact-band a { color: var(--a2, var(--cyan)); }
