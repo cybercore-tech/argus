@@ -1,6 +1,6 @@
 [Unit]
 Description=Argus notify-watch — desktop toasts for real-time file-integrity events
-Documentation=https://github.com/darkstardevx/argus
+Documentation=https://github.com/cybercore-tech/argus
 After=graphical-session.target
 
 [Service]
