@@ -1,6 +1,6 @@
 # Argus
 
-Real-time file-integrity watcher. Extends [SigilWard](https://github.com/darkstardevx/sigilward)'s
+Real-time file-integrity watcher. Extends [SigilWard](https://github.com/cybercore-tech/sigilward)'s
 point-in-time baseline with a live inotify daemon — the same watched paths and
 the same baseline, but change detection the moment it happens instead of at
 the next daily timer run.

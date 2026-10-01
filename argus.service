@@ -1,6 +1,6 @@
 [Unit]
 Description=Argus — real-time file-integrity watcher (extends SigilWard's baseline live)
-Documentation=https://github.com/darkstardevx/argus
+Documentation=https://github.com/cybercore-tech/argus
 After=local-fs.target
 
 [Service]
