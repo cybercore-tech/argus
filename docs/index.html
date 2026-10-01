@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en" data-theme="argus-hundred-eyes">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Argus — the live eye on your files</title>
+  <meta name="description" content="Argus: real-time file-integrity watcher in Rust. Extends SigilWard's baseline with an inotify daemon, a review TUI, and desktop alerts.">
+  <meta name="theme-color" content="#09080f">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cellipse cx='50' cy='50' rx='46' ry='28' fill='none' stroke='%2300e5ff' stroke-width='8'/%3E%3Ccircle cx='50' cy='50' r='14' fill='%2339ff33'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    :root { --a1: var(--cyan); --a2: var(--acid); --a3: var(--pink); }
+    .eye { position: relative; width: min(100%, 32rem); aspect-ratio: 1; margin-inline: auto; }
+    .eye svg { width: 100%; height: 100%; overflow: visible; }
+    .sweep { transform-origin: 200px 200px; animation: sweep 5.5s linear infinite; }
+    @keyframes sweep { to { transform: rotate(360deg); } }
+    .iris { transform-origin: 200px 200px; animation: look 9s ease-in-out infinite; }
+    @keyframes look { 0%,100% { transform: translate(0,0); } 20% { transform: translate(-22px,-6px); } 45% { transform: translate(18px,8px); } 70% { transform: translate(6px,-14px); } }
+    .ping { transform-box: fill-box; transform-origin: center; animation: ping 3.2s ease-out infinite; opacity: 0; }
+    .ping.p2 { animation-delay: 1.1s; } .ping.p3 { animation-delay: 2.2s; }
+    @keyframes ping { 0% { opacity: .95; transform: scale(.4); } 70% { opacity: 0; transform: scale(2.6); } 100% { opacity: 0; } }
+    .feed { position: absolute; left: 50%; bottom: -1.2rem; transform: translateX(-50%); width: 94%; padding: .55rem .8rem; background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--line); font: .74rem/1 var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .feed b { color: var(--a1); font-weight: 400; }
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; }
+    .lane { padding: 1.4rem; border: 1px solid var(--line); background: color-mix(in srgb, var(--panel) 85%, transparent); }
+    .lane h3 { font-size: 1.05rem; letter-spacing: .08em; margin: .4rem 0 .7rem; }
+    .lane .who { font: .72rem/1 var(--mono); letter-spacing: .2em; color: var(--a2); }
+    .lane p { margin: 0 0 .6rem; color: var(--muted); }
+    @media (max-width: 960px) { .split { grid-template-columns: 1fr; } }
+  </style>
+  <script>
+    window.SITE = {
+      defaultTheme: 'argus-hundred-eyes',
+      mashups: [
+        { id: 'argus-hundred-eyes', label: 'HUNDRED EYES', base: 'cyberdyne-hunter', accent: 'neosynth-glow' },
+        { id: 'argus-night-watch', label: 'NIGHT WATCH', base: 'tokyo-night', accent: 'cyberpunk-wire' },
+        { id: 'argus-iris-burn', label: 'IRIS BURN', base: 'dystopian-smog', accent: 'synthwave-miami' }
+      ]
+    };
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="https://cybercore-tech.github.io/" data-brand-phase="0" aria-label="Cybercore Tech home"><span class="brand-emblem">CC</span><span class="brand-name">CYBERCORE <b>/</b> ARGUS<small>SECURITY TOOLS</small></span></a>
+    <nav class="main-nav" aria-label="Primary"><a href="#watch">WATCH</a><a href="#split">DESIGN</a><a href="#setup">SETUP</a><a href="#themes">THEMES</a></nav>
+    <div class="theme-picker"><span class="theme-label">THEME</span><button id="themeButton" class="theme-button" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="themeMenu">LOADING THEMES…</button><div id="themeMenu" class="theme-menu" role="listbox" aria-label="Theme" hidden></div></div>
+  </header>
+
+  <main>
+    <section class="wrap hero">
+      <div>
+        <p class="eyebrow">Real-time file integrity · Rust · inotify</p>
+        <h1><span class="glitch" data-text="ARGUS">ARGUS</span><br><em>SEES IT.</em></h1>
+        <p class="tagline">The hundred-eyed watchman for your most sensitive files — change detected the instant it happens.</p>
+        <p class="lede">SigilWard seals a baseline and checks it daily. Argus is the live half: it watches the exact same paths, classifies every real write against the same baseline, logs it, and pings your desktop. Reads never trigger it — only actual changes do.</p>
+        <div class="chips"><span class="chip"><b>◆</b> INOTIFY</span><span class="chip"><b>◆</b> SIGILWARD BASELINE</span><span class="chip"><b>◆</b> DESKTOP ALERTS</span><span class="chip"><b>◆</b> MIT</span></div>
+        <div class="cta"><a class="btn" href="https://github.com/cybercore-tech/argus">VIEW SOURCE ↗</a><a class="btn ghost" href="#setup">INSTALL</a></div>
+      </div>
+      <div class="eye reveal" aria-hidden="true">
+        <svg viewBox="0 0 400 400">
+          <defs>
+            <radialGradient id="ag" cx="50%" cy="50%" r="50%"><stop offset="0" style="stop-color:var(--a2);stop-opacity:.9"/><stop offset=".55" style="stop-color:var(--a1);stop-opacity:.55"/><stop offset="1" style="stop-color:var(--bg);stop-opacity:0"/></radialGradient>
+            <linearGradient id="sw" x1="0" y1="0" x2="1" y2="0"><stop offset="0" style="stop-color:var(--a1);stop-opacity:0"/><stop offset="1" style="stop-color:var(--a1);stop-opacity:.55"/></linearGradient>
+          </defs>
+          <circle cx="200" cy="200" r="182" style="fill:none;stroke:var(--line)" stroke-dasharray="1 7"/>
+          <circle cx="200" cy="200" r="140" style="fill:none;stroke:var(--line)"/>
+          <circle cx="200" cy="200" r="96" style="fill:none;stroke:var(--line)" stroke-dasharray="6 6"/>
+          <g class="sweep"><path d="M200 200 L382 200 A182 182 0 0 0 357 109 Z" style="fill:url(#sw)"/></g>
+          <path d="M28 200 Q200 62 372 200 Q200 338 28 200 Z" style="fill:color-mix(in srgb, var(--panel) 70%, transparent);stroke:var(--a1)" stroke-width="2.5"/>
+          <g class="iris">
+            <circle cx="200" cy="200" r="64" style="fill:url(#ag)"/>
+            <circle cx="200" cy="200" r="64" style="fill:none;stroke:var(--a2)" stroke-width="2"/>
+            <circle cx="200" cy="200" r="24" style="fill:var(--bg);stroke:var(--a1)" stroke-width="2"/>
+            <circle cx="190" cy="190" r="6" style="fill:var(--white)" opacity=".85"/>
+          </g>
+          <circle class="ping" cx="300" cy="120" r="8" style="fill:none;stroke:var(--a3)" stroke-width="2"/>
+          <circle class="ping p2" cx="96" cy="270" r="8" style="fill:none;stroke:var(--a2)" stroke-width="2"/>
+          <circle class="ping p3" cx="312" cy="290" r="8" style="fill:none;stroke:var(--a1)" stroke-width="2"/>
+        </svg>
+        <div class="feed"><b id="feedTime">--:--:--</b> · <span id="feedLine">watching 16 roots…</span></div>
+      </div>
+    </section>
+
+    <section class="wrap section" id="watch">
+      <div class="section-head reveal"><div><p class="eyebrow">01 / Live watch</p><h2>Writes, not reads.<br><em>Signal, not noise.</em></h2></div><p><code>notify</code> + <code>notify-debouncer-full</code> watch every path in SigilWard's config. A pure read — <code>sudo</code> opening <code>/etc/sudoers</code> on every call, anything polling unit files — is filtered out before it's ever re-hashed. Only real writes are classified and logged.</p></div>
+      <div class="console reveal">
+        <div class="console-head"><span>● ● ● &nbsp; journalctl -u argus -f</span><strong>WATCHING</strong></div>
+        <pre class="term" data-type><span class="t-dim">argus: watching /etc/systemd/system (recursive)</span><span class="t-dim">argus: watching /etc/ssh (recursive)</span><span class="t-dim">argus: watching /usr/local/bin (recursive)</span><span class="t-ok">argus: daemon running, 16 watch root(s)</span><span> </span><span><span class="t-dim">19:42:07</span> <span class="t-mod">MODIFIED</span> /home/you/.ssh/authorized_keys <span class="t-dim">(content)</span></span><span><span class="t-dim">19:42:07</span> <span class="t-pink">notify-watch:</span> 1 new event(s), notifying</span><span><span class="t-dim">19:58:31</span> <span class="t-new">NEW     </span> /etc/systemd/system/backdoor.service</span></pre>
+      </div>
+      <div class="grid g3" style="margin-top:1.1rem">
+        <div class="card c-cyan reveal"><span class="num">◆ SAME BASELINE</span><h3>ONE SOURCE OF TRUTH</h3><p>Every change is judged against SigilWard's own sealed baseline — the daily check and the live watch never disagree.</p></div>
+        <div class="card c-acid reveal"><span class="num">◆ REVIEW TUI</span><h3>ACCEPT, SURGICALLY</h3><p><code>argus</code> opens the event log; accept one reviewed change straight into the baseline with a key — no blanket re-seal of everything else.</p></div>
+        <div class="card c-pink reveal"><span class="num">◆ SCRIPTABLE</span><h3>JSON ON TAP</h3><p><code>argus events --since &lt;RFC3339&gt;</code> dumps the log as JSON for your own tooling.</p></div>
+      </div>
+    </section>
+
+    <section class="wrap section" id="split">
+      <div class="section-head reveal"><div><p class="eyebrow">02 / Design</p><h2>Two processes.<br><em>Least privilege.</em></h2></div><p>A root service can't reliably reach your desktop session, and a desktop process shouldn't be root. So Argus splits the job — and neither half gets more power than it needs.</p></div>
+      <div class="split">
+        <div class="lane reveal"><span class="who">ROOT · SYSTEM SERVICE</span><h3>argus daemon</h3><p>Watches and logs. Read access via <code>CAP_DAC_READ_SEARCH</code>, everything else read-only; writes only its own event log. Never notifies.</p><p>Runs a <b>root-owned</b> binary from <code>/usr/local/bin</code> — a root service must never execute a file your user can swap.</p></div>
+        <div class="lane reveal"><span class="who">YOU · USER SERVICE</span><h3>argus notify-watch</h3><p>Tails the event log inside your real session and fires desktop toasts. No privileges at all.</p><p>Only new events notify — a restart never re-spams what's already in the log.</p></div>
+      </div>
+    </section>
+
+    <section class="wrap section" id="setup">
+      <div class="section-head reveal"><div><p class="eyebrow">03 / Setup</p><h2>Open<br><em>the eyes.</em></h2></div><p>Set up <a href="https://cybercore-tech.github.io/sigilward/">SigilWard</a> first — Argus reads its config and baseline. Then install the privileged watcher and your notifier.</p></div>
+      <div class="grid g2">
+        <div class="reveal"><span class="label">BUILD + INSTALL</span>
+<pre class="code" data-copy><code>git clone https://github.com/cybercore-tech/argus
+cd argus && cargo build --release
+sudo install -m 755 target/release/argus /usr/local/bin/argus
+install -m 755 target/release/argus ~/.local/bin/argus
+mkdir -p ~/.local/state/argus     <span class="c"># required before first start</span>
+
+sudo install -m 644 argus.service /etc/systemd/system/
+sudo systemctl enable --now argus.service
+install -m 644 argus-notify.service ~/.config/systemd/user/
+systemctl --user enable --now argus-notify.service</code></pre></div>
+        <div class="reveal"><span class="label">USAGE</span>
+<pre class="code" data-copy><code>argus                 <span class="c"># TUI event viewer + accept</span>
+argus daemon          <span class="c"># watch loop (argus.service)</span>
+argus notify-watch    <span class="c"># desktop toasts (user unit)</span>
+argus events --since 2026-10-01T00:00:00Z</code></pre>
+          <ul class="list" style="margin-top:1.2rem"><li><b>Watches what SigilWard watches:</b> add paths in <code>~/.config/sigilward/config.toml</code>.</li><li><b>Missing paths</b> (e.g. an absent <code>/etc/ld.so.preload</code>) can't be watched live — SigilWard's daily check still catches them appearing.</li></ul></div>
+      </div>
+    </section>
+
+    <section class="wrap section" id="themes">
+      <div class="section-head reveal"><div><p class="eyebrow">04 / Theme matrix</p><h2>Change<br><em>the lens.</em></h2></div><p>Every Cybercore palette from the shared schema, grouped by family — plus Argus's own <b>signature mashups</b>. Your pick follows you across Cybercore sites.</p></div>
+      <div class="theme-strip reveal"><div><span class="label">NOW RUNNING · <span id="themeCount">…</span></span><div class="now" data-active-theme>…</div><div class="recipe" id="themeRecipe"></div></div><div></div><div id="swatches"></div></div>
+    </section>
+
+    <section class="wrap section" style="padding-top:0">
+      <div class="card c-pink related reveal"><div><span class="num">◆ FOUNDATION</span><h3>SIGILWARD — THE SEAL</h3><p>The baseline Argus guards: SHA-256, mode and ownership for every watched file.</p></div><a class="btn" href="https://cybercore-tech.github.io/sigilward/">SIGILWARD ↗</a></div>
+    </section>
+  </main>
+
+  <footer><span>CYBERCORE TECH / ARGUS / MIT / © <span id="year"></span></span><span><a href="https://cybercore-tech.github.io/">CYBERCORE-TECH.GITHUB.IO</a> · <a href="https://github.com/cybercore-tech/argus">SOURCE</a></span></footer>
+
+  <script>
+    (() => { const t = document.getElementById('feedTime'), l = document.getElementById('feedLine'); if (!t || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      const ev = ['MODIFIED /etc/ssh/sshd_config (content)', 'read filtered · /etc/sudoers', 'NEW /etc/systemd/system/x.timer', 'read filtered · /etc/passwd', 'MODIFIED /usr/local/bin/argus (permissions)', 'watching 16 roots…'];
+      let i = 0; const tick = () => { const d = new Date(); t.textContent = d.toTimeString().slice(0, 8); l.textContent = ev[i++ % ev.length]; };
+      tick(); setInterval(tick, 2600); })();
+  </script>
+  <script src="app.js"></script>
+</body>
+</html>
